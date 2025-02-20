@@ -81,11 +81,22 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             observation = obs[None]
 
         # TODO return the action that the policy prescribes
-        raise NotImplementedError
+        input = ptu.from_numpy(observation)
+        output_dist = self.forward(input)
+        action = ptu.to_numpy(output_dist.sample())
+        return action
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
-        raise NotImplementedError
+        # TODO: update the policy and return the loss
+        input = ptu.from_numpy(observations)
+        pred_action_distribution = self.forward(input)
+        target_action = ptu.from_numpy(actions)
+        loss = -1 * pred_action_distribution.log_prob(target_action).mean()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss
 
     # This function defines the forward pass of the network.
     # You can return anything you want, but you should be able to differentiate
@@ -93,7 +104,12 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # return more flexible objects, such as a
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor) -> Any:
-        raise NotImplementedError
+        if self.discrete:
+            return distributions.Categorical(self.logits_na(observation))
+        else:
+            mean = self.mean_net(observation)
+            sigma = self.logstd.exp().expand_as(mean)
+            return distributions.Normal(mean, sigma)
 
 
 #####################################################
@@ -108,8 +124,9 @@ class MLPPolicySL(MLPPolicy):
             self, observations, actions,
             adv_n=None, acs_labels_na=None, qvals=None
     ):
-        # TODO: update the policy and return the loss
-        loss = TODO
+        loss = super().update(observations, actions)
+
+
 
         return {
             # You can add extra logging information here, but keep this line

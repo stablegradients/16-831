@@ -65,9 +65,8 @@ class ReplayBuffer(object):
     ########################################
 
     def sample_random_data(self, batch_size):
-        # TODO: get this from hw1
-        raise NotImplementedError
-
+        permu_index = np.random.permutation(self.obs.shape[0])
+        return self.obs[permu_index], self.acs[permu_index], self.rews[permu_index], self.next_obs[permu_index], self.terminals[permu_index]
     def sample_recent_data(self, batch_size=1, concat_rew=True):
 
         if concat_rew:
