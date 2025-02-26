@@ -154,16 +154,16 @@ class MLPPolicyPG(MLPPolicy):
 
         policy_loss = loss.detach().clone()
 
-        # If we are using a baseline, we must update it with MSE to predict Q-values
         if self.nn_baseline:
             assert q_values is not None, (
                 "q_values must be provided if using baseline."
             )
-            targets = normalize(q_values, np.mean(q_values), np.std(q_values))
-            targets = ptu.from_numpy(targets)
+            # normalizing q with the same mean and variance as q 
+            q_targets = normalize(q_values, np.mean(q_values), np.std(q_values))
+            q_targets = ptu.from_numpy(q_targets)
 
-            baseline_predictions = self.baseline(observations).squeeze(-1)
-            baseline_loss = self.baseline_loss(baseline_predictions, targets)
+            baseline_preds = self.baseline(observations).squeeze(-1)
+            baseline_loss = self.baseline_loss(baseline_preds, q_targets)
 
             self.baseline_optimizer.zero_grad()
             baseline_loss.backward()
