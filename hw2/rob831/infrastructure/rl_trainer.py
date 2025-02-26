@@ -168,6 +168,9 @@ class RL_Trainer(object):
         print("\nCollecting data to be used for training...")
         paths, envsteps_this_batch = utils.sample_trajectories(self.env, collect_policy, batch_size, self.params['ep_len'])
 
+        # env_fn = lambda: gym.make(self.env.spec.id)
+        # paths, envsteps_this_batch = utils.sample_trajectories_parallel(env_fn, collect_policy, batch_size, self.params['ep_len'], num_workers=4)
+
         # collect more rollouts with the same policy, to be saved as videos in tensorboard
         # note: here, we collect MAX_NVIDEO rollouts, each of length MAX_VIDEO_LEN
         train_video_paths = None

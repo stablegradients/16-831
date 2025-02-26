@@ -193,3 +193,128 @@ def add_noise(data_inp, noiseToSignal=0.01):
             0, np.absolute(std_of_noise[j]), (data.shape[0],)))
 
     return data
+
+
+import multiprocessing as mp
+import numpy as np
+
+# Worker function running in each subprocess
+def env_worker(child_conn, env_fn):
+    """
+    Worker process that runs a Gym environment and communicates with the main process.
+    
+    Args:
+        child_conn: Child end of the Pipe for communication with the main process.
+        env_fn: Function that creates a new Gym environment instance when called.
+    """
+    env = env_fn()
+    while True:
+        cmd = child_conn.recv()  # Receive command from main process
+        # print(cmd)
+        if cmd is None:  # Reset command
+            ob = env.reset()
+            child_conn.send(ob)
+        elif isinstance(cmd, str) and cmd == "exit":  # Exit command
+            env.close()
+            break
+        else:  # Step command with action
+            action = cmd
+            ob, rew, done, info = env.step(action)
+            child_conn.send((ob, rew, done, info))
+
+def sample_trajectories_parallel(env_fn, policy, min_timesteps_per_batch, max_path_length, num_workers, render=False, render_mode=('rgb_array')):
+    """
+    Collect trajectories in parallel using multiple processes until at least min_timesteps_per_batch timesteps are collected.
+
+    Args:
+        env_fn: Function that returns a new Gym environment instance (e.g., lambda: gym.make('CartPole-v1')).
+        policy: PyTorch model on GPU with a get_action method that accepts batched states.
+        min_timesteps_per_batch: Minimum total timesteps to collect across all trajectories.
+        max_path_length: Maximum number of steps per trajectory.
+        num_workers: Number of parallel workers (environments).
+        render: Whether to render the environment (not implemented in parallel for simplicity).
+        render_mode: Render mode (ignored in this implementation).
+
+    Returns:
+        paths: List of trajectory dictionaries (same format as Path).
+        total_timesteps: Total number of timesteps collected.
+    """
+    # Ensure 'spawn' for CUDA compatibility if not already set
+    try:
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass  # Already set
+
+    # Create worker processes
+    workers = []
+    for _ in range(num_workers):
+        parent_conn, child_conn = mp.Pipe()
+        p = mp.Process(target=env_worker, args=(child_conn, env_fn))
+        p.start()
+        workers.append((p, parent_conn))
+
+    # Initialize state for each environment
+    current_states = []
+    trajectories = [[] for _ in range(num_workers)]  # List of transitions per environment
+    steps = [0] * num_workers  # Step counter per environment
+    active = [True] * num_workers  # Whether each environment is active
+    paths = []
+    total_timesteps = 0
+
+    # Reset all environments to get initial states
+    for _, parent_conn in workers:
+        parent_conn.send(None)  # Reset command
+        ob = parent_conn.recv()
+        current_states.append(ob)
+
+    # Main collection loop
+    while total_timesteps < min_timesteps_per_batch or any(active):
+        # Identify active environments
+        active_indices = [i for i, a in enumerate(active) if a]
+        if not active_indices:
+            break
+
+        # Batch states from active environments
+        states_batch = np.array([current_states[i] for i in active_indices])
+        # Ensure states are on GPU for policy (assuming policy expects numpy or can handle conversion)
+        actions_batch = policy.get_action(states_batch)  # Shape: (num_active, action_dim)
+
+        # Distribute actions and step environments
+        for idx, action in zip(active_indices, actions_batch):
+            workers[idx][1].send(action)  # Send action
+
+        # Collect results
+        for idx in active_indices:
+            ob, rew, done, info = workers[idx][1].recv()
+            steps[idx] += 1
+            # Append transition: (observation, action, reward, next_observation, done)
+            trajectories[idx].append((current_states[idx], action, rew, ob, done))
+
+            # Check if trajectory should end
+            rollout_done = done or steps[idx] > max_path_length
+            if rollout_done:
+                # Construct trajectory
+                obs, acs, rewards, next_obs, dones = zip(*trajectories[idx])
+                # Terminals: 0 for all steps except last, which is 1 if done or steps > max_path_length
+                terminals = [0] * (len(dones) - 1) + [1]
+                path = Path(obs, [], acs, rewards, next_obs, terminals)
+                paths.append(path)
+                total_timesteps += get_pathlength(path)
+                trajectories[idx] = []
+                steps[idx] = 0
+
+                if total_timesteps < min_timesteps_per_batch:
+                    # Reset environment
+                    workers[idx][1].send(None)
+                    current_states[idx] = workers[idx][1].recv()
+                else:
+                    active[idx] = False
+            else:
+                current_states[idx] = ob
+
+    # Clean up
+    for p, parent_conn in workers:
+        parent_conn.send("exit")
+        p.join()
+
+    return paths, total_timesteps

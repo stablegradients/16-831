@@ -18,6 +18,7 @@ class PGAgent(BaseAgent):
         self.nn_baseline = self.agent_params['nn_baseline']
         self.reward_to_go = self.agent_params['reward_to_go']
         self.gae_lambda = self.agent_params['gae_lambda']
+        self.steps_per_batch = self.agent_params.get('steps_per_batch', 1)  # Default to 3 if not provided
 
         # actor/policy
         self.actor = MLPPolicyPG(
@@ -47,9 +48,11 @@ class PGAgent(BaseAgent):
         # HINT2: look at the MLPPolicyPG class for how to update the policy
             # and obtain a train_log
 
-        q_values = self.calculate_q_vals(rewards_list)
-        advantages = self.estimate_advantage(observations, rewards_list, q_values, terminals)
-        train_log = self.actor.update(observations, actions, advantages, q_values)
+        
+        for i in range(self.steps_per_batch):
+            q_values = self.calculate_q_vals(rewards_list)
+            advantages = self.estimate_advantage(observations, rewards_list, q_values, terminals)
+            train_log = self.actor.update(observations, actions, advantages, q_values)
 
         return train_log
 
