@@ -70,10 +70,10 @@ def init_gpu(use_gpu=True, gpu_id=0):
 def set_device(gpu_id):
     torch.cuda.set_device(gpu_id)
 
-
 def from_numpy(*args, **kwargs):
     return torch.from_numpy(*args, **kwargs).float().to(device)
 
 
 def to_numpy(tensor):
     return tensor.to('cpu').detach().numpy()
+

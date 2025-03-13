@@ -86,5 +86,41 @@ class BootstrappedContinuousCritic(nn.Module, BaseCritic):
         #       to 0) when a terminal state is reached
         # HINT: make sure to squeeze the output of the critic_network to ensure
         #       that its dimensions match the reward
+        
+        # Convert numpy arrays to tensors
+        ob_no = ptu.from_numpy(ob_no)
+        next_ob_no = ptu.from_numpy(next_ob_no)
+        reward_n = ptu.from_numpy(reward_n)
+        terminal_n = ptu.from_numpy(terminal_n)
+        
+        loss = 0
+        total_updates = self.num_grad_steps_per_target_update * self.num_target_updates
+        
+        for target_update in range(self.num_target_updates):
+            # Recompute target values at the beginning of each target update cycle
+            # a) Calculate V(s') by querying the critic with next_ob_no
+            next_values = self.forward(next_ob_no)
+            
+            # Set V(s') to 0 for terminal states
+            next_values = next_values * (1 - terminal_n)
+            
+            # b) Compute target values as r(s, a) + gamma * V(s')
+            target_values = reward_n + self.gamma * next_values
+            
+            # Detach target values from the computation graph since they are targets
+            target_values = target_values.detach()
+            
+            # Perform gradient updates
+            for _ in range(self.num_grad_steps_per_target_update):
+                # Get current predictions
+                current_values = self.forward(ob_no)
+                
+                # Calculate loss
+                loss = self.loss(current_values, target_values)
+                
+                # Perform gradient update
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
 
         return loss.item()

@@ -125,5 +125,25 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
 class MLPPolicyAC(MLPPolicy):
     def update(self, observations, actions, adv_n=None):
+        # Convert numpy arrays to tensors
+        observations = ptu.from_numpy(observations)
+        actions = ptu.from_numpy(actions)
+        adv_n = ptu.from_numpy(adv_n)
+        
         # TODO: update the policy and return the loss
+        # Get action distribution
+        action_distribution = self.forward(observations)
+        
+        # Calculate log probabilities of the actions
+        log_probs = action_distribution.log_prob(actions)
+        
+        # Weight log probabilities by advantages and calculate loss
+        # Note: we negate because optimizer minimizes, but we want to maximize
+        loss = -(log_probs * adv_n).mean()
+        
+        # Optimize
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
         return loss.item()
